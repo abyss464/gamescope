@@ -5527,20 +5527,15 @@ determine_and_apply_focus( global_focus_t *pFocus )
 	}
 
 	// Set SDL window title
+	// The nested window is the session's screen: it stays up, showing black,
+	// while no app window exists (e.g. while a game recreates its window).
 	if ( pFocus->GetNestedHints() )
 	{
-		if ( pFocus->focusWindow )
+		pFocus->GetNestedHints()->SetVisible( true );
+		if ( pFocus->focusWindow && previousLocalFocus.focusWindow != pFocus->focusWindow )
 		{
-			pFocus->GetNestedHints()->SetVisible( true );
-			if ( previousLocalFocus.focusWindow != pFocus->focusWindow )
-			{
-				pFocus->GetNestedHints()->SetTitle( pFocus->focusWindow->title );
-				pFocus->GetNestedHints()->SetIcon( pFocus->focusWindow->icon );
-			}
-		}
-		else
-		{
-			pFocus->GetNestedHints()->SetVisible( false );
+			pFocus->GetNestedHints()->SetTitle( pFocus->focusWindow->title );
+			pFocus->GetNestedHints()->SetIcon( pFocus->focusWindow->icon );
 		}
 	}
 
