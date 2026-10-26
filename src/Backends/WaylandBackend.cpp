@@ -222,6 +222,8 @@ namespace gamescope
         void CommitLibDecor( libdecor_configuration *pConfiguration );
         void Commit();
 
+        bool FitToApp( int32_t nAppWidth, int32_t nAppHeight );
+
         wl_surface *GetSurface() const { return m_pSurface; }
         libdecor_frame *GetFrame() const { return m_pFrame; }
         xdg_toplevel *GetXdgToplevel() const;
@@ -302,6 +304,12 @@ namespace gamescope
         bool m_bHasAttachedBuffer = false;
         uint32_t m_uFractionalScale = 120;
         bool m_bHasRecievedScale = false;
+
+        // The area the app's shape is fitted into, in logical pixels: the last
+        // size the host gave us that did not come from our own fit.
+        int32_t m_nFitBoxWidth = 0;
+        int32_t m_nFitBoxHeight = 0;
+        std::optional<std::pair<int32_t, int32_t>> m_oPendingFit;
 
         std::optional<WaylandPlaneColorState> m_ColorState{};
         float m_flPreviousSaturationScale = 1.0f;
@@ -467,6 +475,7 @@ namespace gamescope
         virtual void SetTitle( std::shared_ptr<std::string> szTitle ) override;
         virtual void SetIcon( std::shared_ptr<std::vector<uint32_t>> uIconPixels ) override;
         virtual void SetSelection( std::shared_ptr<std::string> szContents, GamescopeSelection eSelection ) override;
+        virtual bool FitToApp( int32_t nAppWidth, int32_t nAppHeight ) override;
     private:
 
         friend CWaylandPlane;
@@ -1256,6 +1265,10 @@ namespace gamescope
         m_bVisible = bVisible;
         force_repaint();
     }
+    bool CWaylandConnector::FitToApp( int32_t nAppWidth, int32_t nAppHeight )
+    {
+        return m_Planes[0].FitToApp( nAppWidth, nAppHeight );
+    }
     void CWaylandConnector::SetTitle( std::shared_ptr<std::string> pAppTitle )
     {
         std::string szTitle = pAppTitle ? *pAppTitle : "gamescope";
@@ -1646,6 +1659,35 @@ namespace gamescope
         wl_surface_commit( m_pSurface );
     }
 
+    bool CWaylandPlane::FitToApp( int32_t nAppWidth, int32_t nAppHeight )
+    {
+        // Tiled or maximized states say little (Hyprland reports them for every
+        // window to suppress client decorations), and a compositor that does
+        // place the window ignores min/max size there anyway. Only fullscreen
+        // is left alone.
+        if ( !m_pFrame || ( m_eWindowState & LIBDECOR_WINDOW_STATE_FULLSCREEN ) ||
+             nAppWidth <= 0 || nAppHeight <= 0 || m_nFitBoxWidth <= 0 || m_nFitBoxHeight <= 0 )
+            return false;
+
+        // The largest size of the app's shape inside the box.
+        int32_t nWidth  = m_nFitBoxWidth;
+        int32_t nHeight = int32_t( int64_t( nWidth ) * nAppHeight / nAppWidth );
+        if ( nHeight > m_nFitBoxHeight )
+        {
+            nHeight = m_nFitBoxHeight;
+            nWidth  = int32_t( int64_t( nHeight ) * nAppWidth / nAppHeight );
+        }
+
+        // A host compositor keeps a floating window within its min and max
+        // size, so pinning both to the new size resizes the window there.
+        libdecor_frame_set_min_content_size( m_pFrame, nWidth, nHeight );
+        libdecor_frame_set_max_content_size( m_pFrame, nWidth, nHeight );
+        m_oPendingFit = std::pair{ nWidth, nHeight };
+        m_bNeedsDecorCommit = true;
+        force_repaint();
+        return true;
+    }
+
     xdg_toplevel *CWaylandPlane::GetXdgToplevel() const
     {
         if ( !m_pFrame )
@@ -1754,6 +1796,21 @@ namespace gamescope
         }
         g_nOutputWidth  = WaylandScaleToPhysical( nWidth, uScale );
         g_nOutputHeight = WaylandScaleToPhysical( nHeight, uScale );
+
+        // Whatever this configure is, the size limits of a fit have done
+        // their job (or never will): lift them so the window can be resized.
+        const bool bFitResult = m_oPendingFit && *m_oPendingFit == std::pair{ nWidth, nHeight };
+        if ( m_oPendingFit )
+        {
+            m_oPendingFit.reset();
+            libdecor_frame_set_min_content_size( m_pFrame, 0, 0 );
+            libdecor_frame_set_max_content_size( m_pFrame, 0, 0 );
+        }
+        if ( !bFitResult )
+        {
+            m_nFitBoxWidth  = nWidth;
+            m_nFitBoxHeight = nHeight;
+        }
 
         m_bUnmappedAwaitingConfigure = false;
 

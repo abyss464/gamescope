@@ -271,6 +271,9 @@ namespace gamescope
         virtual void SetTitle( std::shared_ptr<std::string> szTitle ) = 0;
         virtual void SetIcon( std::shared_ptr<std::vector<uint32_t>> uIconPixels ) = 0;
         virtual void SetSelection( std::shared_ptr<std::string> szContents, GamescopeSelection eSelection ) = 0;
+        // Gives the nested window the shape of the app's window, so it shows no bars.
+        // Returns false when the window cannot take a shape now.
+        virtual bool FitToApp( int32_t nAppWidth, int32_t nAppHeight ) { return true; }
 
         virtual bool ShouldPaintCursor() { return false; }
     };

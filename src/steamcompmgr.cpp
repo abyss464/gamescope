@@ -1038,6 +1038,9 @@ struct global_focus_t : public focus_t
 	gamescope::VirtualConnectorKey_t ulVirtualFocusKey = 0;
 	std::shared_ptr<gamescope::IBackendConnector> pVirtualConnector;
 
+	// Size of the app window the nested window was last fitted to.
+	std::pair<int32_t, int32_t> FittedAppSize = { 0, 0 };
+
 	gamescope::INestedHints *GetNestedHints()
 	{
 		gamescope::IBackendConnector *pConnector = this->pVirtualConnector.get();
@@ -5089,6 +5092,36 @@ DumpFocusInfo()
 		dump_win( "  Focus window", ctx->focus.focusWindow );
 		dump_win( "  Input focus window", ctx->focus.inputFocusWindow );
 		dump_win( "  Override window", ctx->focus.overrideWindow );
+	}
+}
+
+// The nested window follows the shape of the focused app window. That is the
+// app's main window: its dialogs are drawn over it and never take focus here.
+static void
+fit_nested_window_to_app( global_focus_t *pFocus )
+{
+	gamescope::INestedHints *pHints = pFocus->GetNestedHints();
+	if ( !pHints || !pFocus->focusWindow )
+		return;
+
+	const Rect geometry = pFocus->focusWindow->GetGeometry();
+	const std::pair<int32_t, int32_t> appSize = { geometry.nWidth, geometry.nHeight };
+	if ( appSize == pFocus->FittedAppSize )
+		return;
+
+	if ( !pHints->FitToApp( appSize.first, appSize.second ) )
+		return;
+	pFocus->FittedAppSize = appSize;
+
+	// The app is fitted into the Xwayland screen before that is fitted into
+	// the window, so the screen takes the app's shape as well.
+	const int nNestedWidth = int( int64_t( g_nNestedHeight ) * appSize.first / appSize.second );
+	if ( nNestedWidth != g_nNestedWidth )
+	{
+		g_nNestedWidth = nNestedWidth;
+		wlserver_lock();
+		wlserver_set_xwayland_server_mode( 0, g_nNestedWidth, g_nNestedHeight, g_nOutputRefresh );
+		wlserver_unlock();
 	}
 }
 
@@ -10490,6 +10523,7 @@ steamcompmgr_main(int argc, char **argv)
 				determine_and_apply_focus( pFocus );
 				hasRepaint = true;
 			}
+			fit_nested_window_to_app( pFocus );
 		}
 
 		if ( g_bPendingFocusInfo.exchange( false ) )
