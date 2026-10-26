@@ -310,6 +310,7 @@ namespace gamescope
         int32_t m_nFitBoxWidth = 0;
         int32_t m_nFitBoxHeight = 0;
         std::optional<std::pair<int32_t, int32_t>> m_oPendingFit;
+        std::pair<int32_t, int32_t> m_FitAppSize = { 0, 0 };
 
         std::optional<WaylandPlaneColorState> m_ColorState{};
         float m_flPreviousSaturationScale = 1.0f;
@@ -1669,6 +1670,8 @@ namespace gamescope
              nAppWidth <= 0 || nAppHeight <= 0 || m_nFitBoxWidth <= 0 || m_nFitBoxHeight <= 0 )
             return false;
 
+        m_FitAppSize = { nAppWidth, nAppHeight };
+
         // The largest size of the app's shape inside the box.
         int32_t nWidth  = m_nFitBoxWidth;
         int32_t nHeight = int32_t( int64_t( nWidth ) * nAppHeight / nAppWidth );
@@ -1798,9 +1801,10 @@ namespace gamescope
         g_nOutputHeight = WaylandScaleToPhysical( nHeight, uScale );
 
         // Whatever this configure is, the size limits of a fit have done
-        // their job (or never will): lift them so the window can be resized.
-        const bool bFitResult = m_oPendingFit && *m_oPendingFit == std::pair{ nWidth, nHeight };
-        if ( m_oPendingFit )
+        // their job or been overtaken: lift them so the window can be resized.
+        const bool bFitPending = m_oPendingFit.has_value();
+        const bool bFitResult = bFitPending && *m_oPendingFit == std::pair{ nWidth, nHeight };
+        if ( bFitPending )
         {
             m_oPendingFit.reset();
             libdecor_frame_set_min_content_size( m_pFrame, 0, 0 );
@@ -1810,6 +1814,11 @@ namespace gamescope
         {
             m_nFitBoxWidth  = nWidth;
             m_nFitBoxHeight = nHeight;
+
+            // The host placed the window anew (e.g. applied a size rule)
+            // before our fit landed: fit into the new area instead.
+            if ( bFitPending )
+                FitToApp( m_FitAppSize.first, m_FitAppSize.second );
         }
 
         m_bUnmappedAwaitingConfigure = false;
