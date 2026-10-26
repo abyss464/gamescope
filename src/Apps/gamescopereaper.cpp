@@ -156,6 +156,18 @@ namespace gamescope
 
             s_bRun = false;
             Process::KillAllChildren( getpid(), SIGTERM );
+
+            // A child that survives SIGTERM (e.g. a half-shut-down Wine
+            // service) would keep gamescope and its window up forever.
+            struct sigaction killStragglers{};
+            killStragglers.sa_handler = []( int nSignal )
+            {
+                s_ReaperLog.infof( "Children still alive after SIGTERM. Killing them." );
+                Process::KillAllChildren( getpid(), SIGKILL );
+            };
+            sigaction( SIGALRM, &killStragglers, nullptr );
+            alarm( 5 );
+
             Process::WaitForAllChildren();
 
             return 0;
