@@ -1962,7 +1962,13 @@ namespace gamescope
         m_bHasRecievedScale = true;
 
         if ( bDirty )
+        {
+            // The window size given to libdecor is logical; it was computed
+            // with the old scale, so commit it again with the new one.
+            if ( m_pFrame )
+                m_bNeedsDecorCommit = true;
             force_repaint();
+        }
     }
 
     ////////////////
